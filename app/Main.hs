@@ -1,9 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 
--- TODO
--- multiline operators
-
 -- Writing this rather imperatively for performance reasons
 
 module Main where
@@ -21,12 +18,12 @@ import Data.Maybe
 type RawProgram = T.Text
 type Keyword = T.Text
 
-programKeyword = "PROGRAM" :: Keyword
-beginKeyword = "BEGIN" :: Keyword
-varKeyword = "VAR" :: Keyword
-endKeyword = "END" :: Keyword
-integerKeyword = "INTEGER" :: Keyword
-realKeyword = "REAL" :: Keyword
+programKeyword = "program" :: Keyword
+beginKeyword = "begin" :: Keyword
+varKeyword = "var" :: Keyword
+endKeyword = "end" :: Keyword
+integerKeyword = "integer" :: Keyword
+realKeyword = "real" :: Keyword
 
 data Token = IntegerVal Int
   | FloatVal Float
@@ -141,7 +138,7 @@ rparenChar :: T.Text
 rparenChar = T.pack ")"
 
 intDivSeq :: T.Text
-intDivSeq = T.pack "DIV"
+intDivSeq = T.pack "div"
 
 assignSeq :: T.Text
 assignSeq = T.pack ":="
@@ -240,7 +237,7 @@ handleAlphaNum state = do
       addErrorToken ("Invalid identifier: " ++ T.unpack alphaNumText)
     else do
       case alphaNumText of
-        x | isKeyword x -> do createKeywordToken alphaNumText
+        x | isKeyword (T.toLower x) -> do createKeywordToken (T.toLower alphaNumText)
         _ -> do addToken (Id alphaNumText)
       lexer
 
