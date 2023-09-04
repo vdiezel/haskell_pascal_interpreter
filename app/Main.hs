@@ -2,8 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 -- TODO
--- add variables
--- add keywords support
+-- multiline operators
 
 -- Writing this rather imperatively for performance reasons
 
@@ -12,26 +11,39 @@ module Main where
 import Control.Monad.State
 import Control.Applicative
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import Text.Regex.TDFA
 import Data.Char
 import qualified Data.Sequence as Seq
 import Debug.Trace
+import Data.Maybe
 
 type RawProgram = T.Text
 type Keyword = T.Text
-
-
-varKeyword :: Keyword
 
 programKeyword = "PROGRAM" :: Keyword
 beginKeyword = "BEGIN" :: Keyword
 varKeyword = "VAR" :: Keyword
 endKeyword = "END" :: Keyword
+integerKeyword = "INTEGER" :: Keyword
+realKeyword = "REAL" :: Keyword
 
 data Token = IntegerVal Int
   | FloatVal Float
   | Plus
   | Mult
+  | Minus
+  | Div
+  | Dot
+  | IntDiv
+  | Integer
+  | Real
+  | Assign
+  | Semi
+  | Comma
+  | Colon
+  | Lparen
+  | Rparen
   | Program
   | Var
   | Id T.Text
@@ -68,7 +80,10 @@ keywords =
     beginKeyword,
     endKeyword,
     programKeyword,
-    varKeyword
+    varKeyword,
+    intDivSeq,
+    integerKeyword,
+    realKeyword
   ]
 
 getCharAt :: Int -> State LAS (Maybe Char)
@@ -83,11 +98,11 @@ getCharAt lookAhead = do
 getCurrChar :: State LAS (Maybe Char)
 getCurrChar = do getCharAt 0
 
-peak :: State LAS (Maybe Char)
-peak = do getCharAt 1
+peek :: State LAS (Maybe Char)
+peek = do getCharAt 1
 
 program1 :: T.Text
-program1 = "+ 123+ 2.0 \n 1 * 3 PROGRAM myProgram1  1+2 VAR myVar BEGIN END"
+program1 = "+ 123+ {TEST} 2.0 \n 1 * 3 PROGRAM myProgram1  1+2 VAR myVar BEGIN END ( ) Var x := 12 ;"
 
 matchRegex :: T.Text -> T.Text -> Bool
 matchRegex text regex = T.unpack text =~ regex
@@ -98,16 +113,55 @@ numberRegex = "[0-9]+"
 plusChar :: T.Text
 plusChar = T.pack "+"
 
+minusChar :: T.Text
+minusChar = T.pack "-"
+
+divChar :: T.Text
+divChar = T.pack "/"
+
 multChar :: T.Text
 multChar = T.pack "*"
+
+semiChar :: T.Text
+semiChar = T.pack ";"
+
+comaChar :: T.Text
+comaChar = T.pack ","
+
+colonChar :: T.Text
+colonChar = T.pack ":"
+
+dotChar :: T.Text
+dotChar = T.pack "."
+
+lparenChar :: T.Text
+lparenChar = T.pack "("
+
+rparenChar :: T.Text
+rparenChar = T.pack ")"
+
+intDivSeq :: T.Text
+intDivSeq = T.pack "DIV"
+
+assignSeq :: T.Text
+assignSeq = T.pack ":="
 
 containsADot :: T.Text -> Bool
 containsADot = T.any (=='.')
 
-matchSingleChar :: T.Text -> Maybe Token
-matchSingleChar char
-  | char == plusChar = Just Plus
-  | char == multChar = Just Mult
+matchOperator :: T.Text -> Maybe Token
+matchOperator operator
+  | operator == plusChar = Just Plus
+  | operator == minusChar = Just Minus
+  | operator == multChar = Just Mult
+  | operator == semiChar = Just Semi
+  | operator == divChar = Just Div
+  | operator == comaChar = Just Comma
+  | operator == lparenChar = Just Lparen
+  | operator == rparenChar = Just Rparen
+  | operator == colonChar = Just Colon
+  | operator == assignSeq = Just Assign
+  | operator == dotChar = Just Dot
   | otherwise = Nothing
 
 grabWhile :: T.Text -> Int -> (Char -> T.Text -> Bool) -> T.Text -> T.Text
@@ -143,12 +197,25 @@ skipWhiteSpaces = do
       | a == ' ' -> skipWhiteSpaces
       | otherwise -> return ()
 
+skipComment :: State LAS ()
+skipComment = do
+  next
+  char <- getCurrChar
+  case char of
+    Nothing -> return ()
+    Just a
+      | a /= '}' -> skipComment
+      | otherwise -> next
+
 createKeywordToken :: Keyword -> State LAS ()
 createKeywordToken keyword
  | keyword == programKeyword = addToken Program
  | keyword == varKeyword = addToken Var
  | keyword == beginKeyword = addToken Begin
  | keyword == endKeyword = addToken End
+ | keyword == intDivSeq = addToken IntDiv
+ | keyword == realKeyword = addToken Real
+ | keyword == integerKeyword = addToken Integer
 
 addErrorToken :: String -> State LAS ()
 addErrorToken message = do
@@ -169,21 +236,32 @@ handleAlphaNum :: LAS -> State LAS ()
 handleAlphaNum state = do
     let alphaNumText = grabAlphanumeric (text state) (pos state)
     move (T.length alphaNumText)
-
     if not (matchRegex alphaNumText "\\<[a-zA-Z]+[0-9]*\\>") then do
-      addErrorToken "Invalid identifier"
+      addErrorToken ("Invalid identifier: " ++ T.unpack alphaNumText)
     else do
       case alphaNumText of
         x | isKeyword x -> do createKeywordToken alphaNumText
         _ -> do addToken (Id alphaNumText)
+      lexer
+
+getOperator :: Char -> State LAS T.Text
+getOperator char = do
+  if char /= ':' then return (T.pack [char])
+  else do
+    mNextChar <- peek
+    case mNextChar of
+      Nothing -> return (T.pack [char])
+      Just nextChar -> do
+        if nextChar == '=' then return (T.pack [char, nextChar])
+        else return (T.pack [char])
 
 handleOtherChar :: Char -> State LAS ()
 handleOtherChar char = do
-  case matchSingleChar (T.pack [char]) of
-    Nothing -> addErrorToken "Unknown character"
-    Just validToken -> do
-      addToken validToken >> next >> lexer
-
+  operator <- getOperator char
+  case matchOperator operator of
+    Nothing -> addErrorToken ("Unknown character: " ++ [char])
+    Just validToken -> do addToken validToken >> move (T.length operator) >> lexer
+      
 lexer :: State LAS ()
 lexer = do
   currentState <- get
@@ -193,14 +271,16 @@ lexer = do
     Just a
       | a == ' ' || a == '\r' -> skipWhiteSpaces >> lexer
       | a == '\n' -> next >> nextLine >> lexer
+      | a == '{' -> skipComment >> lexer
       | isDigit a -> handleNumber currentState >> lexer
-      | isLetter a -> handleAlphaNum currentState >> lexer
+      | isLetter a -> handleAlphaNum currentState
       | otherwise -> handleOtherChar a
 
 main :: IO ()
 main = do
+    programFile <- TIO.readFile "./programs/program1.pas"
     let initialState = LAS {
-      text = program1,
+      text = programFile,
       pos = 0,
       tokens = Seq.empty,
       row = 0,
