@@ -8,6 +8,14 @@ data PascalValue = IntVal Int | FloatVal Float | EvalError String
 evalFactor :: P.Factor -> PascalValue
 evalFactor (P.IntegerLiteral int) = IntVal int
 evalFactor (P.FloatLiteral float) = FloatVal float
+evalFactor (P.UnOperator op f) = case op of
+    P.UnaryPlus -> evalFactor f
+    P.UnaryMinus -> do
+        case evalFactor f of
+            IntVal i -> IntVal (-i)
+            FloatVal f -> FloatVal (-f)
+            _ -> EvalError "Invalid type for operation"
+
 evalFactor (P.Parens expr) = evalExpr expr
 
 evalNumOperation :: (Int -> Int -> Int) -> (Float -> Float -> Float) ->  PascalValue -> PascalValue -> PascalValue

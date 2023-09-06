@@ -11,6 +11,9 @@ data PS = PS {
   tokenIndex :: Int
 } deriving (Show)
 
+data UnOp = UnaryPlus | UnaryMinus
+  deriving (Show)
+
 data Expr = SingleTerm Term 
             | Plus Term Expr
             | Minus Term Expr
@@ -23,6 +26,7 @@ data Term = SingleFactor Factor
 
 data Factor = IntegerLiteral Int
             | FloatLiteral Float
+            | UnOperator UnOp Factor
             | Parens Expr
              deriving (Show)
 
@@ -42,6 +46,18 @@ parseFactor = do
   case mToken of 
     Just (IntegerVal int) -> advance >> return (Just (IntegerLiteral int))
     Just (FloatVal f) -> advance >> return (Just (FloatLiteral f))
+    Just L.Plus -> do
+      advance
+      mFactor <- parseFactor
+      case mFactor of
+        Nothing -> return Nothing
+        Just factor -> return (Just (UnOperator UnaryPlus factor))
+    Just L.Minus -> do
+      advance
+      mFactor <- parseFactor
+      case mFactor of
+        Nothing -> return Nothing
+        Just factor -> return (Just (UnOperator UnaryMinus factor))
     Just L.Lparen -> do
       advance
       mExpression <- parseExpr
