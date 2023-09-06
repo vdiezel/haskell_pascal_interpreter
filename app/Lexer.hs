@@ -163,7 +163,7 @@ matchOperator operator
   | otherwise = Nothing
 
 grabWhile :: T.Text -> Int -> (Char -> T.Text -> Bool) -> T.Text -> T.Text
-grabWhile program pos predicate currText 
+grabWhile program pos predicate currText
   | pos >= T.length program = currText
   | predicate char currText = grabWhile program (pos + 1) predicate (T.snoc currText char)
   | otherwise = currText
@@ -226,7 +226,7 @@ handleNumber state = do
     let numberText = grabNumber (text state) (pos state)
     move (T.length numberText)
     if containsADot numberText then do
-      addToken (FloatVal (read $ T.unpack numberText)) 
+      addToken (FloatVal (read $ T.unpack numberText))
     else do
       addToken (IntegerVal (read $ T.unpack numberText))
 
@@ -259,7 +259,7 @@ handleOtherChar char = do
   case matchOperator operator of
     Nothing -> addErrorToken ("Unknown character: " ++ [char])
     Just validToken -> do addToken validToken >> move (T.length operator) >> lexer
-      
+
 lexer :: State LAS ()
 lexer = do
   currentState <- get
@@ -267,7 +267,8 @@ lexer = do
   case char of
     Nothing -> addToken EOF
     Just a
-      | a == ' ' || a == '\r' -> skipWhiteSpaces >> lexer
+      | a == ' ' -> skipWhiteSpaces >> lexer
+      | a == '\r' -> next >> lexer
       | a == '\n' -> next >> nextLine >> lexer
       | a == '{' -> skipComment >> lexer
       | isDigit a -> handleNumber currentState >> lexer
