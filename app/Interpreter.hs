@@ -1,9 +1,23 @@
 module Interpreter (run)  where
 
 import qualified Parser as P
+import Data.Map as Map
+import Control.Monad.State
+import qualified Data.Text as T
+
 
 data PascalValue = IntVal Int | FloatVal Float | EvalError String
     deriving (Show)
+
+type Memory = Map.Map P.VarId PascalValue
+
+data IS = IS {
+    memory :: Memory,
+    symbolicTable :: Int
+} deriving (Show)
+
+setVar :: P.VarId -> PascalValue -> State IS ()
+setVar var val = modify (\s -> s { memory = Map.insertWith (\_ new -> new) var val (memory s)  })
 
 evalFactor :: P.Factor -> PascalValue
 evalFactor (P.IntegerLiteral int) = IntVal int
@@ -45,6 +59,25 @@ evalExpr :: P.Expr -> PascalValue
 evalExpr (P.SingleTerm t) = evalTerm t
 evalExpr (P.Plus t e) = evalNumOperation (+) (+) (evalTerm t) (evalExpr e)
 evalExpr (P.Minus t e) = evalNumOperation (-) (-) (evalTerm t) (evalExpr e)
+
+evalStatement :: P.Statement -> State IS ()
+evalStatement statement -> do
+    -- TODO: pickup here
+
+evalStatements :: P.StatementList -> State IS ()
+evalStatements [] = return ()
+evalStatements (x:xs) = do
+    evalStatement x
+    evalStatements xs
+    
+evalBlock :: P.Block -> State IS ()
+evalBlock (P.Block statements) = do
+    evalStatements statements
+
+evalProgram :: P.Program -> State IS ()
+evalProgram (P.Program block) = do
+    evalBlock block
+    return ()
 
 run :: IO ()
 run = do

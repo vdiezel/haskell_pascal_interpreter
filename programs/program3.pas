@@ -1,1 +1,1 @@
-BEGIN BEGIN a := 5 END; END.
+BEGIN BEGIN a := 5; b := 2 END; END.
