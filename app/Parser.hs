@@ -45,6 +45,7 @@ data Factor = IntegerLiteral Int
             | FloatLiteral Float
             | UnOperator UnOp Factor
             | Parens Expr
+            | VarRef VarId
              deriving (Show)
 
 advance :: State PS ()
@@ -73,6 +74,7 @@ parseFactor = do
     Just (FloatVal f) -> advance >> return (Just (FloatLiteral f))
     Just L.Plus -> parseUnaryOp UnaryPlus
     Just L.Minus -> parseUnaryOp UnaryMinus
+    Just (L.Id varName) -> advance >> return (Just (VarRef varName))
     Just L.Lparen -> do
       advance
       mExpression <- parseExpr
@@ -192,5 +194,6 @@ run = do
     _ -> do
       let initialState = PS { tokens = tokens, tokenIndex = 0 }
       let (res, state) = runState parseProgram initialState
-      -- print (show state)
+      -- print tokens
+      -- print (show res)
       return res

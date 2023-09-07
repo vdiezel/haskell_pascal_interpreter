@@ -19,21 +19,29 @@ data IS = IS {
 setVar :: P.VarId -> PascalValue -> State IS ()
 setVar var val = modify (\s -> s { memory = Map.insertWith (\_ new -> new) var val (memory s)  })
 
-evalFactor :: P.Factor -> PascalValue
-evalFactor (P.IntegerLiteral int) = IntVal int
-evalFactor (P.FloatLiteral float) = FloatVal float
+getVar :: P.VarId -> State IS PascalValue
+getVar var = do
+    currentState <- get
+    case Map.lookup var (memory currentState) of
+        Nothing -> return (EvalError "Unknown Identifier")
+        Just val -> return val
+
+evalFactor :: P.Factor -> State IS PascalValue
+evalFactor (P.IntegerLiteral int) = return (IntVal int)
+evalFactor (P.FloatLiteral float) = return (FloatVal float)
 evalFactor (P.UnOperator op f) = case op of
     P.UnaryPlus -> evalFactor f
     P.UnaryMinus -> do
-        case evalFactor f of
+        evaledFactor <- evalFactor f
+        return $ case evaledFactor of
             IntVal i -> IntVal (-i)
             FloatVal f -> FloatVal (-f)
             EvalError s -> EvalError s
-
 evalFactor (P.Parens expr) = evalExpr expr
+evalFactor (P.VarRef varName) = getVar varName
 
 evalNumOperation :: (Int -> Int -> Int) -> (Float -> Float -> Float) ->  PascalValue -> PascalValue -> PascalValue
-evalNumOperation opInt opFloat p1 p2 = 
+evalNumOperation opInt opFloat p1 p2 =
     case (p1, p2) of
         (IntVal i1, IntVal i2) -> IntVal (opInt i1 i2)
         (IntVal i, FloatVal f) -> FloatVal (opFloat (fromIntegral i) f)
@@ -41,35 +49,53 @@ evalNumOperation opInt opFloat p1 p2 =
         (FloatVal f1, FloatVal f2) -> FloatVal (opFloat f1 f2)
         _ -> EvalError "Invalid type for operation"
 
-evalTerm :: P.Term -> PascalValue
+evalTerm :: P.Term -> State IS PascalValue
 evalTerm (P.SingleFactor f) = evalFactor f
-evalTerm (P.Mul f t) = evalNumOperation (*) (*) (evalFactor f) (evalTerm t)
+evalTerm (P.Mul f t) = do
+    evaledFactor <- evalFactor f
+    evaledTerm <- evalTerm t
+    return (evalNumOperation (*) (*) evaledFactor evaledTerm)
 -- I could abstract this into the evalNumOperation function, too, but it becomes less readable.
 evalTerm (P.Div f t) = do
-    let p1 = evalFactor f
-    let p2 = evalTerm t
-    case (p1, p2) of
+    p1 <- evalFactor f
+    p2 <- evalTerm t
+    return $ case (p1, p2) of
         (IntVal i1, IntVal i2) -> EvalError "Use integer devision" -- Here it differs from evalNumeration
         (IntVal i, FloatVal f) -> FloatVal (fromIntegral i / f)
         (FloatVal f, IntVal i) -> FloatVal (f / fromIntegral i)
         (FloatVal f2, FloatVal f1) -> FloatVal (f1 / f2)
         _ -> EvalError "Invalid type for operation"
 
-evalExpr :: P.Expr -> PascalValue
+evalExpr :: P.Expr -> State IS PascalValue
 evalExpr (P.SingleTerm t) = evalTerm t
-evalExpr (P.Plus t e) = evalNumOperation (+) (+) (evalTerm t) (evalExpr e)
-evalExpr (P.Minus t e) = evalNumOperation (-) (-) (evalTerm t) (evalExpr e)
+evalExpr (P.Plus t e) = do
+    evaledTerm <- evalTerm t
+    evaledExpr <- evalExpr e
+    return (evalNumOperation (+) (+) evaledTerm evaledExpr)
+evalExpr (P.Minus t e) = do
+    evaledTerm <- evalTerm t
+    evaledExpr <- evalExpr e
+    return (evalNumOperation (-) (-) evaledTerm evaledExpr)
+
+evalAssignment :: P.VarId -> P.Expr -> State IS ()
+evalAssignment varId expr = do
+    evaledExpr <- evalExpr expr
+    setVar varId evaledExpr
+    return ()
 
 evalStatement :: P.Statement -> State IS ()
-evalStatement statement -> do
-    -- TODO: pickup here
+evalStatement statement = do
+    case statement of
+        P.Empty -> return ()
+        P.Assign varId expr -> evalAssignment varId expr
+        P.CompoundStatement statements -> evalStatements statements
 
 evalStatements :: P.StatementList -> State IS ()
 evalStatements [] = return ()
 evalStatements (x:xs) = do
     evalStatement x
     evalStatements xs
-    
+
 evalBlock :: P.Block -> State IS ()
 evalBlock (P.Block statements) = do
     evalStatements statements
@@ -82,10 +108,13 @@ evalProgram (P.Program block) = do
 run :: IO ()
 run = do
     res <- P.run
-    case res of 
+    case res of
         Nothing -> print "No Program"
-        Just exp -> do
-            print (show exp)
+        Just program -> do
+            let initialState = IS { symbolicTable = 0, memory = Map.empty }
+            let res = execState (evalProgram program) initialState
+            print (show res)
+            -- print (show program)
             -- let res1 = evalExpr exp
             -- print res1
     --print (show res)
