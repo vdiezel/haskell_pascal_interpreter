@@ -6,6 +6,9 @@ import Debug.Trace
 import qualified Data.Text as T
 import Lexer as L
 
+-- TODO: Figure out how to use Applicative/Monad for Maybe
+-- to prevent my deep nesting to handle "Nothing"
+
 data PS = PS {
   tokens :: Seq.Seq L.Token,
   tokenIndex :: Int
@@ -14,11 +17,25 @@ data PS = PS {
 data UnOp = UnaryPlus | UnaryMinus
   deriving (Show)
 
-data Expr = SingleTerm Term 
+newtype Program = Program Block
+  deriving (Show)
+
+newtype Block = Block StatementList
+  deriving (Show)
+
+type StatementList = [Statement]
+
+type VarId = T.Text
+data Statement = CompoundStatement StatementList
+    | Assign VarId Expr
+    | Empty
+    deriving (Show)
+
+data Expr = SingleTerm Term
             | Plus Term Expr
             | Minus Term Expr
              deriving (Show)
-    
+
 data Term = SingleFactor Factor
             | Mul Factor Term
             | Div Factor Term
@@ -40,24 +57,22 @@ getNextToken = do
   if idx >= Seq.length (tokens currentState) then return Nothing
   else return (Just (Seq.index (tokens currentState) idx))
 
+parseUnaryOp :: UnOp -> State PS (Maybe Factor)
+parseUnaryOp unOp = do
+  advance
+  mFactor <- parseFactor
+  case mFactor of
+    Nothing -> return Nothing
+    Just factor -> return (Just (UnOperator unOp factor))
+
 parseFactor :: State PS (Maybe Factor)
 parseFactor = do
   mToken <- getNextToken
-  case mToken of 
+  case mToken of
     Just (IntegerVal int) -> advance >> return (Just (IntegerLiteral int))
     Just (FloatVal f) -> advance >> return (Just (FloatLiteral f))
-    Just L.Plus -> do
-      advance
-      mFactor <- parseFactor
-      case mFactor of
-        Nothing -> return Nothing
-        Just factor -> return (Just (UnOperator UnaryPlus factor))
-    Just L.Minus -> do
-      advance
-      mFactor <- parseFactor
-      case mFactor of
-        Nothing -> return Nothing
-        Just factor -> return (Just (UnOperator UnaryMinus factor))
+    Just L.Plus -> parseUnaryOp UnaryPlus
+    Just L.Minus -> parseUnaryOp UnaryMinus
     Just L.Lparen -> do
       advance
       mExpression <- parseExpr
@@ -65,7 +80,7 @@ parseFactor = do
         Nothing -> return Nothing
         Just expression -> do
           mNextToken <- getNextToken
-          case mNextToken of 
+          case mNextToken of
             Just L.Rparen -> advance >> return (Just (Parens expression))
             _ -> return Nothing
     _ -> return Nothing
@@ -108,14 +123,74 @@ parseExpr = do
         _ -> return (Just (SingleTerm term))
     _ -> return Nothing
 
-run :: IO (Maybe Expr)
+parseStatement :: State PS (Maybe Statement)
+parseStatement = do 
+  mToken <- getNextToken
+  case mToken of 
+    Just Begin -> do
+      mStatementList <- parseBlock
+      case mStatementList of 
+        Nothing -> return Nothing
+        Just (Block statementList) -> return (Just (CompoundStatement statementList))
+    Just (Id varName) -> do
+      advance
+      mNextToken <- getNextToken
+      case mNextToken of
+        Just L.Assign -> do
+          advance
+          mExpr <- parseExpr
+          case mExpr of
+            Just expr -> return (Just (Parser.Assign varName expr))
+            _ -> return Nothing 
+        _ -> return (Just Empty)
+    _ -> return (Just Empty)
+
+parseStatementList :: StatementList -> State PS (Maybe StatementList)
+parseStatementList currList = do
+  mStatement <- parseStatement
+  case mStatement of
+    Just Empty -> return (Just (currList ++ [Empty]))
+    Just statement -> do
+      mNextToken <- getNextToken
+      case mNextToken of 
+        Just L.Semi -> advance >> parseStatementList (currList ++ [statement])
+        _ -> return (Just (currList ++ [statement]))
+    Nothing -> return Nothing
+
+parseBlock :: State PS (Maybe Block)
+parseBlock = do
+  mNextToken <- getNextToken
+  case mNextToken of
+    Just L.Begin -> do
+      advance
+      mStatementList <- parseStatementList []
+      case mStatementList of
+        Nothing -> return Nothing
+        Just statementList -> do
+          mEndToken <- getNextToken
+          case mEndToken of
+            Just L.End -> advance >> return (Just (Block statementList))
+            _ -> return Nothing
+    _ -> return Nothing
+
+parseProgram :: State PS (Maybe Program)
+parseProgram = do
+  mBlock <- parseBlock
+  mNextToken <- getNextToken
+  case (mBlock, mNextToken) of
+    (Just block, Just L.Dot) -> do
+      advance
+      return (Just (Parser.Program block))
+    _ -> return Nothing
+
+run :: IO (Maybe Program)
 run = do
-  tokens <- L.run "./programs/program2.pas"
+  tokens <- L.run "./programs/program3.pas"
 
   case Seq.index tokens (Seq.length tokens - 1) of
     Error error -> return Nothing
     _ -> do
       let initialState = PS { tokens = tokens, tokenIndex = 0 }
-      let (res, state) = runState parseExpr initialState
+      let (res, state) = runState parseProgram initialState
       -- print (show state)
       return res

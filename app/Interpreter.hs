@@ -14,7 +14,7 @@ evalFactor (P.UnOperator op f) = case op of
         case evalFactor f of
             IntVal i -> IntVal (-i)
             FloatVal f -> FloatVal (-f)
-            _ -> EvalError "Invalid type for operation"
+            EvalError s -> EvalError s
 
 evalFactor (P.Parens expr) = evalExpr expr
 
@@ -50,8 +50,9 @@ run :: IO ()
 run = do
     res <- P.run
     case res of 
-        Nothing -> print "No Expr"
+        Nothing -> print "No Program"
         Just exp -> do
-            let res1 = evalExpr exp
-            print res1
-    print (show res)
+            print (show exp)
+            -- let res1 = evalExpr exp
+            -- print res1
+    --print (show res)

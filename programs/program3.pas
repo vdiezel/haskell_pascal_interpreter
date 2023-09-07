@@ -1,0 +1,1 @@
+BEGIN BEGIN a := 5 END; END.
