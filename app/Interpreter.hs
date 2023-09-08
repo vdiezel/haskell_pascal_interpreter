@@ -105,16 +105,8 @@ evalProgram (P.Program block) = do
     evalBlock block
     return ()
 
-run :: IO ()
-run = do
-    res <- P.run
-    case res of
-        Nothing -> print "No Program"
-        Just program -> do
-            let initialState = IS { symbolicTable = 0, memory = Map.empty }
-            let res = execState (evalProgram program) initialState
-            print (show res)
-            -- print (show program)
-            -- let res1 = evalExpr exp
-            -- print res1
-    --print (show res)
+run :: P.Program -> IO IS
+run program = do
+    let initialState = IS { symbolicTable = 0, memory = Map.empty }
+    let res = execState (evalProgram program) initialState
+    return res

@@ -275,11 +275,10 @@ lexer = do
       | isLetter a -> handleAlphaNum currentState
       | otherwise -> handleOtherChar a
 
-run :: String -> IO (Seq.Seq Token)
-run fileName = do
-    programFile <- TIO.readFile fileName
+run :: RawProgram -> IO (Seq.Seq Token)
+run program = do
     let initialState = LAS {
-      text = programFile,
+      text = program,
       pos = 0,
       tokens = Seq.empty,
       row = 0,
