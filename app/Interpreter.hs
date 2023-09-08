@@ -1,4 +1,4 @@
-module Interpreter (run)  where
+module Interpreter (run, IS, Memory, PascalValue(..))  where
 
 import qualified Parser as P
 import Data.Map as Map
@@ -105,8 +105,8 @@ evalProgram (P.Program block) = do
     evalBlock block
     return ()
 
-run :: P.Program -> IO IS
+run :: P.Program -> Memory
 run program = do
     let initialState = IS { symbolicTable = 0, memory = Map.empty }
     let res = execState (evalProgram program) initialState
-    return res
+    memory res

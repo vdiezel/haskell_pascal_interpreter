@@ -185,11 +185,11 @@ parseProgram = do
       return (Just (Parser.Program block))
     _ -> return Nothing
 
-run :: Seq.Seq Token -> IO (Maybe Program)
+run :: Seq.Seq Token -> Maybe Program
 run tokens = do
   case Seq.index tokens (Seq.length tokens - 1) of
-    Error error -> return Nothing
+    Error error -> Nothing
     _ -> do
       let initialState = PS { tokens = tokens, tokenIndex = 0 }
       let (program, state) = runState parseProgram initialState
-      return program
+      program

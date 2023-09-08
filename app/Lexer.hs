@@ -4,7 +4,7 @@
 -- Writing this rather imperatively for performance reasons
 -- and easier access to the exaxt point of failure in case of failure
 
-module Lexer (run, Token (..)) where
+module Lexer (run, Token (..), RawProgram) where
 
 import Control.Monad.State
 import Control.Applicative
@@ -275,7 +275,7 @@ lexer = do
       | isLetter a -> handleAlphaNum currentState
       | otherwise -> handleOtherChar a
 
-run :: RawProgram -> IO (Seq.Seq Token)
+run :: RawProgram -> Seq.Seq Token
 run program = do
     let initialState = LAS {
       text = program,
@@ -285,4 +285,4 @@ run program = do
       col = 0
     }
     let (res, state) = runState lexer initialState
-    return (tokens state)
+    tokens state

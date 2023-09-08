@@ -44,9 +44,18 @@ executable pascal-parser
 
 test-suite interpreter-tests
     type:                exitcode-stdio-1.0
-    main-is:             InterpreterSpec.hs
-    hs-source-dirs:      test          
+    main-is:             Main.hs
+    other-modules:
+      Lexer
+      Parser
+      Interpreter
+    hs-source-dirs:   test, app
     build-depends:
-      base,
+      base ^>=4.16.4.0,
+      text,
+      bytestring,
+      regex-tdfa,
+      mtl,
+      containers,
       HUnit
     default-language:    Haskell2010

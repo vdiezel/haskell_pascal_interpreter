@@ -10,10 +10,10 @@ import Interpreter
 main :: IO ()
 main = do
      programFile <- TIO.readFile "./programs/program3.pas"
-     tokens <- Lexer.run programFile
-     mProgram <- Parser.run tokens
+     let tokens = Lexer.run programFile
+     let mProgram = Parser.run tokens
      case mProgram of
           Nothing -> print "Parsing failed"
           Just program -> do
-               execState <- Interpreter.run program
+               let execState = Interpreter.run program
                print (show execState)
