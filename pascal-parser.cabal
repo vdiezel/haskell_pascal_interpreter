@@ -49,6 +49,7 @@ test-suite interpreter-tests
       Lexer
       Parser
       Interpreter
+      InterpreterSpec
     hs-source-dirs:   test, app
     build-depends:
       base ^>=4.16.4.0,

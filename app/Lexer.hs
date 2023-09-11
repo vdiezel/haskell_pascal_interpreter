@@ -103,46 +103,46 @@ program1 :: T.Text
 program1 = "+ 123+ {TEST} 2.0 \n 1 * 3 PROGRAM myProgram1  1+2 VAR myVar BEGIN END ( ) Var x := 12 ;"
 
 matchRegex :: T.Text -> T.Text -> Bool
-matchRegex text regex = T.unpack text =~ regex
+matchRegex text regex = text =~ regex
 
 numberRegex :: T.Text
 numberRegex = "[0-9]+"
 
 plusChar :: T.Text
-plusChar = T.pack "+"
+plusChar = "+"
 
 minusChar :: T.Text
-minusChar = T.pack "-"
+minusChar = "-"
 
 divChar :: T.Text
-divChar = T.pack "/"
+divChar = "/"
 
 multChar :: T.Text
-multChar = T.pack "*"
+multChar = "*"
 
 semiChar :: T.Text
-semiChar = T.pack ";"
+semiChar = ";"
 
 comaChar :: T.Text
-comaChar = T.pack ","
+comaChar = ","
 
 colonChar :: T.Text
-colonChar = T.pack ":"
+colonChar = ":"
 
 dotChar :: T.Text
-dotChar = T.pack "."
+dotChar = "."
 
 lparenChar :: T.Text
-lparenChar = T.pack "("
+lparenChar = "("
 
 rparenChar :: T.Text
-rparenChar = T.pack ")"
+rparenChar = ")"
 
 intDivSeq :: T.Text
-intDivSeq = T.pack "div"
+intDivSeq = "div"
 
 assignSeq :: T.Text
-assignSeq = T.pack ":="
+assignSeq = ":="
 
 containsADot :: T.Text -> Bool
 containsADot = T.any (=='.')
