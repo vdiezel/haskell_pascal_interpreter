@@ -116,14 +116,16 @@ evalStatements (x:xs) = do
     evalStatements xs
 
 evalBlock :: P.Block -> State IS ()
-evalBlock (P.Block statements) = do
+evalBlock (P.Block decls statements) = do
+    evalVarDecls decls
     evalStatements statements
 
 evalVarDec :: P.Declaration -> State IS ()
-evalVarDec ([], varType) = return ()
-evalVarDec (id:varIds, varType) = do
+evalVarDec (P.VarDec ([], varType)) = return ()
+evalVarDec (P.VarDec (id:varIds, varType)) = do
     setVarType id varType
-    evalVarDec (varIds, varType)
+    evalVarDec (P.VarDec (varIds, varType))
+evalVarDec _ = return ()
 
 evalVarDecls :: P.Declarations -> State IS ()
 evalVarDecls [] = return ()
@@ -132,8 +134,7 @@ evalVarDecls (d:decls) = do
     evalVarDecls decls
 
 evalProgram :: P.Program -> State IS ()
-evalProgram (P.Program progName varDecls block) = do
-    evalVarDecls varDecls
+evalProgram (P.Program progName block) = do
     evalBlock block
     return ()
 

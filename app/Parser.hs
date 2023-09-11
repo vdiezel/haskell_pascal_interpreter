@@ -17,10 +17,10 @@ data PS = PS {
 data UnOp = UnaryPlus | UnaryMinus
   deriving (Show)
 
-data Program = Program VarId Declarations Block
+data Program = Program VarId Block
   deriving (Show)
 
-newtype Block = Block StatementList
+data Block = Block Declarations StatementList
   deriving (Show)
 
 type StatementList = [Statement]
@@ -28,7 +28,9 @@ type StatementList = [Statement]
 type Declarations = [Declaration]
 data TypeSpec = Integer | Real
   deriving (Show)
-type Declaration = ([VarId], TypeSpec)
+type VarDec = ([VarId], TypeSpec)
+data Declaration = VarDec VarDec | ProcDec VarId Block
+  deriving(Show)
 
 type VarId = T.Text
 data Statement = CompoundStatement StatementList
@@ -53,8 +55,8 @@ data Factor = IntegerLiteral Int
             | VarRef VarId
              deriving (Show)
 
-advance :: State PS ()
-advance = modify (\s -> s { tokenIndex = tokenIndex s + 1 })
+consumeNext :: State PS ()
+consumeNext = modify (\s -> s { tokenIndex = tokenIndex s + 1 })
 
 getNextToken :: State PS (Maybe L.Token)
 getNextToken = do
@@ -65,7 +67,7 @@ getNextToken = do
 
 parseUnaryOp :: UnOp -> State PS (Maybe Factor)
 parseUnaryOp unOp = do
-  advance
+  consumeNext
   mFactor <- parseFactor
   case mFactor of
     Nothing -> return Nothing
@@ -75,20 +77,20 @@ parseFactor :: State PS (Maybe Factor)
 parseFactor = do
   mToken <- getNextToken
   case mToken of
-    Just (IntegerVal int) -> advance >> return (Just (IntegerLiteral int))
-    Just (FloatVal f) -> advance >> return (Just (FloatLiteral f))
+    Just (IntegerVal int) -> consumeNext >> return (Just (IntegerLiteral int))
+    Just (FloatVal f) -> consumeNext >> return (Just (FloatLiteral f))
     Just L.Plus -> parseUnaryOp UnaryPlus
     Just L.Minus -> parseUnaryOp UnaryMinus
-    Just (L.Id varName) -> advance >> return (Just (VarRef varName))
+    Just (L.Id varName) -> consumeNext >> return (Just (VarRef varName))
     Just L.Lparen -> do
-      advance
+      consumeNext
       mExpression <- parseExpr
       case mExpression of
         Nothing -> return Nothing
         Just expression -> do
           mNextToken <- getNextToken
           case mNextToken of
-            Just L.Rparen -> advance >> return (Just (Parens expression))
+            Just L.Rparen -> consumeNext >> return (Just (Parens expression))
             _ -> return Nothing
     _ -> return Nothing
 
@@ -106,8 +108,8 @@ parseTerm = do
     Just factor -> do
       mOperator <- getNextToken
       case mOperator of
-        Just L.Mult -> do advance >> composeTerm Mul factor
-        Just L.Div -> do advance >> composeTerm Parser.Div factor
+        Just L.Mult -> do consumeNext >> composeTerm Mul factor
+        Just L.Div -> do consumeNext >> composeTerm Parser.Div factor
         _ -> return (Just (SingleFactor factor))
     _ -> return Nothing
 
@@ -125,30 +127,30 @@ parseExpr = do
     Just term -> do
       mOperator <- getNextToken
       case mOperator of
-        Just L.Plus -> do advance >> composeExpr Parser.Plus term
-        Just L.Minus -> do advance >> composeExpr Parser.Minus term
+        Just L.Plus -> do consumeNext >> composeExpr Parser.Plus term
+        Just L.Minus -> do consumeNext >> composeExpr Parser.Minus term
         _ -> return (Just (SingleTerm term))
     _ -> return Nothing
 
 parseStatement :: State PS (Maybe Statement)
-parseStatement = do 
+parseStatement = do
   mToken <- getNextToken
-  case mToken of 
+  case mToken of
     Just Begin -> do
-      mStatementList <- parseBlock
-      case mStatementList of 
+      mStatementList <- parseCompoundStatement
+      case mStatementList of
         Nothing -> return Nothing
-        Just (Block statementList) -> return (Just (CompoundStatement statementList))
+        Just statementList -> return (Just (CompoundStatement statementList))
     Just (Id varName) -> do
-      advance
+      consumeNext
       mNextToken <- getNextToken
       case mNextToken of
         Just L.Assign -> do
-          advance
+          consumeNext
           mExpr <- parseExpr
           case mExpr of
             Just expr -> return (Just (Parser.Assign varName expr))
-            _ -> return Nothing 
+            _ -> return Nothing
         _ -> return (Just Empty)
     _ -> return (Just Empty)
 
@@ -159,8 +161,8 @@ parseStatementList currList = do
     Just Empty -> return (Just (currList ++ [Empty]))
     Just statement -> do
       mNextToken <- getNextToken
-      case mNextToken of 
-        Just L.Semi -> advance >> parseStatementList (currList ++ [statement])
+      case mNextToken of
+        Just L.Semi -> consumeNext >> parseStatementList (currList ++ [statement])
         _ -> return (Just (currList ++ [statement]))
     Nothing -> return Nothing
 
@@ -169,12 +171,12 @@ parseVarIds currIds = do
   mIdToken <- getNextToken
   case mIdToken of
     Just (Id varName) -> do
-      advance
+      consumeNext
       mNextToken <- getNextToken
-      case mNextToken of 
-        Just L.Comma -> advance >> parseVarIds (currIds ++ [varName])
+      case mNextToken of
+        Just L.Comma -> consumeNext >> parseVarIds (currIds ++ [varName])
         _ -> return (Just (currIds ++ [varName]))
-    Nothing -> return Nothing 
+    _ -> return Nothing
 
 getTypeSpecType :: Token -> Maybe TypeSpec
 getTypeSpecType L.Integer = Just Parser.Integer
@@ -182,22 +184,44 @@ getTypeSpecType L.Real = Just Parser.Real
 getTypeSpecType _ = Nothing
 
 -- There must be a way to define something that can prevent this deep nesting
--- and constant fallback to nothing, prob. Applicative, however there are 
+-- and constant fallback to nothing, prob. Applicative, however there are
 -- always some edge cases that make it less straight forward
 
-parseVarDeclarations :: Declarations -> State PS (Maybe Declarations)
-parseVarDeclarations currDec = do
+parseDeclarations :: Declarations -> State PS (Maybe Declarations)
+parseDeclarations currDec = do
     mNextToken <- getNextToken
     case mNextToken of
       Just L.Begin -> return (Just currDec)
+      Just L.Procedure -> do
+        consumeNext
+        mProcId <- getNextToken
+        case mProcId of
+          Just (Id procName) -> do
+            consumeNext
+            mSemi <- getNextToken
+            case mSemi of 
+              Just L.Semi -> do
+                consumeNext
+                mBlock <- parseBlock
+                case mBlock of
+                  Just block -> do 
+                    mSemiClosing <- getNextToken
+                    case mSemiClosing of
+                      Just L.Semi -> do
+                        consumeNext
+                        parseDeclarations (currDec ++ [ProcDec procName block])
+                      _ -> return Nothing
+                  _ -> return Nothing
+              _ -> return Nothing
+          _ -> return Nothing
       _ -> do
         mVarIds <- parseVarIds []
         case mVarIds of
-          Just ids -> do 
+          Just ids -> do
             mColonToken <- getNextToken
             case mColonToken of
               Just L.Colon -> do
-                advance
+                consumeNext
                 mTypeToken <- getNextToken
                 case mTypeToken of
                   Nothing -> return Nothing
@@ -205,71 +229,77 @@ parseVarDeclarations currDec = do
                     let mTypeSpec = getTypeSpecType token
                     case mTypeSpec of
                       Just typeSpec -> do
-                        advance
+                        consumeNext
                         mSemiToken <- getNextToken
                         case mSemiToken of
                           Just L.Semi -> do
-                            advance
-                            parseVarDeclarations (currDec ++ [(ids, typeSpec)])
+                            consumeNext
+                            parseDeclarations (currDec ++ [VarDec (ids, typeSpec)])
                           Nothing -> return Nothing
                       Nothing -> return Nothing
               Nothing -> return Nothing
           Nothing -> return Nothing
 
-parseVarDeclarationBlock :: State PS (Maybe Declarations)
-parseVarDeclarationBlock = do
+parseDeclarationBlock :: State PS (Maybe Declarations)
+parseDeclarationBlock = do
   mVarToken <- getNextToken
   case mVarToken of
     Just L.Var -> do
-      advance
-      parseVarDeclarations []
+      consumeNext
+      parseDeclarations []
     _ -> return (Just [])
 
-parseBlock :: State PS (Maybe Block)
-parseBlock = do
+parseCompoundStatement :: State PS (Maybe StatementList)
+parseCompoundStatement = do
   mNextToken <- getNextToken
   case mNextToken of
     Just L.Begin -> do
-      advance
+      consumeNext
       mStatementList <- parseStatementList []
       case mStatementList of
         Nothing -> return Nothing
         Just statementList -> do
           mEndToken <- getNextToken
           case mEndToken of
-            Just L.End -> advance >> return (Just (Block statementList))
+            Just L.End -> consumeNext >> return (Just statementList)
             _ -> return Nothing
     _ -> return Nothing
+
+parseBlock :: State PS (Maybe Block)
+parseBlock = do
+  mDecls <- parseDeclarationBlock
+  case mDecls of
+    Nothing -> return Nothing
+    Just decls -> do
+      mStatementList <- parseCompoundStatement
+      case mStatementList of
+        (Just statements) -> return (Just (Parser.Block decls statements))
+        _ -> return Nothing
 
 parseProgram :: State PS (Maybe Program)
 parseProgram = do
   mToken <- getNextToken
-  case mToken of 
+  case mToken of
     (Just L.Program) -> do
-      advance 
+      consumeNext
       mVarToken <- getNextToken
       case mVarToken of
         Just (Id varName) -> do
-          advance 
+          consumeNext
           mSemiToken <- getNextToken
           case mSemiToken of
             Just L.Semi -> do
-              advance 
-              mVarDecls <- parseVarDeclarationBlock
-              case mVarDecls of 
-                Nothing -> return Nothing
-                Just varDecls -> do
-                  mBlock <- parseBlock
-                  mNextToken <- getNextToken
-                  case (mBlock, mNextToken) of
-                    (Just block, Just L.Dot) -> do
-                      advance
-                      return (Just (Parser.Program varName varDecls block))
-                    _ -> return Nothing
+              consumeNext
+              mBlock <- parseBlock
+              mNextToken <- getNextToken
+              case (mBlock, mNextToken) of
+                (Just block, Just L.Dot) -> do
+                  consumeNext
+                  return (Just (Parser.Program varName block))
+                _ -> return Nothing
             _ -> return Nothing
         _ -> return Nothing
     _ -> return Nothing
-
 
 run :: Seq.Seq Token -> Maybe Program
 run tokens = do

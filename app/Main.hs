@@ -9,8 +9,9 @@ import Interpreter
 
 main :: IO ()
 main = do
-     programFile <- TIO.readFile "./programs/program3.pas"
+     programFile <- TIO.readFile "./programs/program4.pas"
      let tokens = Lexer.run programFile
+     print (show tokens)
      let mProgram = Parser.run tokens
      case mProgram of
           Nothing -> print "Parsing failed"

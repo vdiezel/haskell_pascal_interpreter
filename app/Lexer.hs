@@ -20,6 +20,7 @@ type RawProgram = T.Text
 type Keyword = T.Text
 
 programKeyword = "program" :: Keyword
+procedureKeyword = "procedure" :: Keyword
 beginKeyword = "begin" :: Keyword
 varKeyword = "var" :: Keyword
 endKeyword = "end" :: Keyword
@@ -27,28 +28,29 @@ integerKeyword = "integer" :: Keyword
 realKeyword = "real" :: Keyword
 
 data Token = IntegerVal Int
-  | FloatVal Float
-  | Plus
-  | Mult
-  | Minus
+  | Assign
+  | Begin
+  | Colon
+  | Comma
   | Div
   | Dot
-  | IntDiv
-  | Integer
-  | Real
-  | Assign
-  | Semi
-  | Comma
-  | Colon
-  | Lparen
-  | Rparen
-  | Program
-  | Var
-  | Id T.Text
-  | Begin
+  | EOF
   | End
   | Error T.Text
-  | EOF
+  | FloatVal Float
+  | Id T.Text
+  | IntDiv
+  | Integer
+  | Lparen
+  | Minus
+  | Mult
+  | Plus
+  | Procedure
+  | Program
+  | Real
+  | Rparen
+  | Semi
+  | Var
   deriving (Show)
 
 -- LexicalAnalysisState
@@ -78,6 +80,7 @@ keywords =
     beginKeyword,
     endKeyword,
     programKeyword,
+    procedureKeyword,
     varKeyword,
     intDivSeq,
     integerKeyword,
@@ -98,9 +101,6 @@ getCurrChar = do getCharAt 0
 
 peek :: State LAS (Maybe Char)
 peek = do getCharAt 1
-
-program1 :: T.Text
-program1 = "+ 123+ {TEST} 2.0 \n 1 * 3 PROGRAM myProgram1  1+2 VAR myVar BEGIN END ( ) Var x := 12 ;"
 
 matchRegex :: T.Text -> T.Text -> Bool
 matchRegex text regex = text =~ regex
@@ -214,6 +214,7 @@ createKeywordToken keyword
  | keyword == intDivSeq = addToken IntDiv
  | keyword == realKeyword = addToken Real
  | keyword == integerKeyword = addToken Integer
+ | keyword == procedureKeyword = addToken Procedure
 
 addErrorToken :: String -> State LAS ()
 addErrorToken message = do
