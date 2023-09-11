@@ -2,28 +2,50 @@ module Interpreter (run, IS, Memory, PascalValue(..))  where
 
 import qualified Parser as P
 import Data.Map as Map
+import Debug.Trace
 import Control.Monad.State
 import qualified Data.Text as T
 
-
-data PascalValue = IntVal Int | FloatVal Float | EvalError String
+data PascalValue = IntVal Int | FloatVal Float
     deriving (Show)
 
 type Memory = Map.Map P.VarId PascalValue
+type SymbolicTable = Map.Map P.VarId P.TypeSpec
 
 data IS = IS {
     memory :: Memory,
-    symbolicTable :: Int
+    symbolicTable :: SymbolicTable
 } deriving (Show)
 
+matchPascalValueToType :: PascalValue -> P.TypeSpec -> Bool
+matchPascalValueToType (IntVal i) P.Integer = True
+matchPascalValueToType (FloatVal f) P.Real = True
+matchPascalValueToType _ _ = False
+
+-- TODO: add type check
 setVar :: P.VarId -> PascalValue -> State IS ()
-setVar var val = modify (\s -> s { memory = Map.insertWith (\_ new -> new) var val (memory s)  })
+setVar var val = do
+    varType <- getVarType var
+    if matchPascalValueToType val varType then do
+        modify (\s -> s { memory = Map.insertWith (\_ new -> new) var val (memory s)  })
+    else
+        error ("You are trying to assign something that is NOT a(n) " ++ show varType ++ " value to " ++ show var)
+
+setVarType :: P.VarId -> P.TypeSpec -> State IS ()
+setVarType var varType = modify (\s -> s { symbolicTable = Map.insertWith (\_ new -> new) var varType (symbolicTable s)  })
 
 getVar :: P.VarId -> State IS PascalValue
 getVar var = do
     currentState <- get
     case Map.lookup var (memory currentState) of
-        Nothing -> return (EvalError "Unknown Identifier")
+        Nothing -> error ("Unknown Identifier " ++ show var)
+        Just val -> return val
+
+getVarType :: P.VarId -> State IS P.TypeSpec
+getVarType var = do
+    currentState <- get
+    case Map.lookup var (symbolicTable currentState) of
+        Nothing -> error ("Unknown Identifier " ++ show var)
         Just val -> return val
 
 evalFactor :: P.Factor -> State IS PascalValue
@@ -36,7 +58,6 @@ evalFactor (P.UnOperator op f) = case op of
         return $ case evaledFactor of
             IntVal i -> IntVal (-i)
             FloatVal f -> FloatVal (-f)
-            EvalError s -> EvalError s
 evalFactor (P.Parens expr) = evalExpr expr
 evalFactor (P.VarRef varName) = getVar varName
 
@@ -47,7 +68,6 @@ evalNumOperation opInt opFloat p1 p2 =
         (IntVal i, FloatVal f) -> FloatVal (opFloat (fromIntegral i) f)
         (FloatVal f, IntVal i) -> FloatVal (opFloat f (fromIntegral i))
         (FloatVal f1, FloatVal f2) -> FloatVal (opFloat f1 f2)
-        _ -> EvalError "Invalid type for operation"
 
 evalTerm :: P.Term -> State IS PascalValue
 evalTerm (P.SingleFactor f) = evalFactor f
@@ -60,11 +80,10 @@ evalTerm (P.Div f t) = do
     p1 <- evalFactor f
     p2 <- evalTerm t
     return $ case (p1, p2) of
-        (IntVal i1, IntVal i2) -> EvalError "Use integer devision" -- Here it differs from evalNumeration
+        (IntVal i1, IntVal i2) -> error "Use integer devision" -- Here it differs from evalNumeration
         (IntVal i, FloatVal f) -> FloatVal (fromIntegral i / f)
         (FloatVal f, IntVal i) -> FloatVal (f / fromIntegral i)
         (FloatVal f2, FloatVal f1) -> FloatVal (f1 / f2)
-        _ -> EvalError "Invalid type for operation"
 
 evalExpr :: P.Expr -> State IS PascalValue
 evalExpr (P.SingleTerm t) = evalTerm t
@@ -100,13 +119,26 @@ evalBlock :: P.Block -> State IS ()
 evalBlock (P.Block statements) = do
     evalStatements statements
 
+evalVarDec :: P.Declaration -> State IS ()
+evalVarDec ([], varType) = return ()
+evalVarDec (id:varIds, varType) = do
+    setVarType id varType
+    evalVarDec (varIds, varType)
+
+evalVarDecls :: P.Declarations -> State IS ()
+evalVarDecls [] = return ()
+evalVarDecls (d:decls) = do
+    evalVarDec d
+    evalVarDecls decls
+
 evalProgram :: P.Program -> State IS ()
-evalProgram (P.Program block) = do
+evalProgram (P.Program progName varDecls block) = do
+    evalVarDecls varDecls
     evalBlock block
     return ()
 
 run :: P.Program -> Memory
 run program = do
-    let initialState = IS { symbolicTable = 0, memory = Map.empty }
+    let initialState = IS { symbolicTable = Map.empty, memory = Map.empty }
     let res = execState (evalProgram program) initialState
-    memory res
+    trace (show (symbolicTable res)) $ memory res

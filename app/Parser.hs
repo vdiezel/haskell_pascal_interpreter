@@ -17,13 +17,18 @@ data PS = PS {
 data UnOp = UnaryPlus | UnaryMinus
   deriving (Show)
 
-newtype Program = Program Block
+data Program = Program VarId Declarations Block
   deriving (Show)
 
 newtype Block = Block StatementList
   deriving (Show)
 
 type StatementList = [Statement]
+
+type Declarations = [Declaration]
+data TypeSpec = Integer | Real
+  deriving (Show)
+type Declaration = ([VarId], TypeSpec)
 
 type VarId = T.Text
 data Statement = CompoundStatement StatementList
@@ -159,6 +164,67 @@ parseStatementList currList = do
         _ -> return (Just (currList ++ [statement]))
     Nothing -> return Nothing
 
+parseVarIds :: [VarId] -> State PS (Maybe [VarId])
+parseVarIds currIds = do
+  mIdToken <- getNextToken
+  case mIdToken of
+    Just (Id varName) -> do
+      advance
+      mNextToken <- getNextToken
+      case mNextToken of 
+        Just L.Comma -> advance >> parseVarIds (currIds ++ [varName])
+        _ -> return (Just (currIds ++ [varName]))
+    Nothing -> return Nothing 
+
+getTypeSpecType :: Token -> Maybe TypeSpec
+getTypeSpecType L.Integer = Just Parser.Integer
+getTypeSpecType L.Real = Just Parser.Real
+getTypeSpecType _ = Nothing
+
+-- There must be a way to define something that can prevent this deep nesting
+-- and constant fallback to nothing, prob. Applicative, however there are 
+-- always some edge cases that make it less straight forward
+
+parseVarDeclarations :: Declarations -> State PS (Maybe Declarations)
+parseVarDeclarations currDec = do
+    mNextToken <- getNextToken
+    case mNextToken of
+      Just L.Begin -> return (Just currDec)
+      _ -> do
+        mVarIds <- parseVarIds []
+        case mVarIds of
+          Just ids -> do 
+            mColonToken <- getNextToken
+            case mColonToken of
+              Just L.Colon -> do
+                advance
+                mTypeToken <- getNextToken
+                case mTypeToken of
+                  Nothing -> return Nothing
+                  Just token -> do
+                    let mTypeSpec = getTypeSpecType token
+                    case mTypeSpec of
+                      Just typeSpec -> do
+                        advance
+                        mSemiToken <- getNextToken
+                        case mSemiToken of
+                          Just L.Semi -> do
+                            advance
+                            parseVarDeclarations (currDec ++ [(ids, typeSpec)])
+                          Nothing -> return Nothing
+                      Nothing -> return Nothing
+              Nothing -> return Nothing
+          Nothing -> return Nothing
+
+parseVarDeclarationBlock :: State PS (Maybe Declarations)
+parseVarDeclarationBlock = do
+  mVarToken <- getNextToken
+  case mVarToken of
+    Just L.Var -> do
+      advance
+      parseVarDeclarations []
+    _ -> return (Just [])
+
 parseBlock :: State PS (Maybe Block)
 parseBlock = do
   mNextToken <- getNextToken
@@ -177,13 +243,33 @@ parseBlock = do
 
 parseProgram :: State PS (Maybe Program)
 parseProgram = do
-  mBlock <- parseBlock
-  mNextToken <- getNextToken
-  case (mBlock, mNextToken) of
-    (Just block, Just L.Dot) -> do
-      advance
-      return (Just (Parser.Program block))
+  mToken <- getNextToken
+  case mToken of 
+    (Just L.Program) -> do
+      advance 
+      mVarToken <- getNextToken
+      case mVarToken of
+        Just (Id varName) -> do
+          advance 
+          mSemiToken <- getNextToken
+          case mSemiToken of
+            Just L.Semi -> do
+              advance 
+              mVarDecls <- parseVarDeclarationBlock
+              case mVarDecls of 
+                Nothing -> return Nothing
+                Just varDecls -> do
+                  mBlock <- parseBlock
+                  mNextToken <- getNextToken
+                  case (mBlock, mNextToken) of
+                    (Just block, Just L.Dot) -> do
+                      advance
+                      return (Just (Parser.Program varName varDecls block))
+                    _ -> return Nothing
+            _ -> return Nothing
+        _ -> return Nothing
     _ -> return Nothing
+
 
 run :: Seq.Seq Token -> Maybe Program
 run tokens = do

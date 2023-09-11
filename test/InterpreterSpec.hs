@@ -34,13 +34,8 @@ testProgram1 = TestLabel "BEGIN BEGIN a := 5; b := a + 2 END; END." $ TestCase $
     assertBool "variable a is set to 5" (hasCorrectVarVal memory "a" (Interpreter.IntVal 5))
     assertBool "variable b is set to 7" (hasCorrectVarVal memory "a" (Interpreter.IntVal 7))
 
-myTest :: Test
-myTest = TestLabel "Test" $ TestCase $ do 
-    let result = 3 + 2
-    assertEqual "Expected result" 5 result
-
 myTestSuite :: Test
-myTestSuite = test [ myTest ]
+myTestSuite = test [ testProgram1 ]
 
 runTests :: IO ()
 runTests = do

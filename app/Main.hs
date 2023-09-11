@@ -15,5 +15,5 @@ main = do
      case mProgram of
           Nothing -> print "Parsing failed"
           Just program -> do
-               let execState = Interpreter.run program
-               print (show execState)
+               let res = Interpreter.run program
+               print (show res)
