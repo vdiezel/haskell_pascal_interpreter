@@ -6,15 +6,15 @@ import Debug.Trace
 import Control.Monad.State
 import qualified Data.Text as T
 
-data PascalValue = IntVal Int | FloatVal Float
+data PascalValue = IntVal Int | FloatVal Float | NoVal
     deriving (Show)
 
-type Memory = Map.Map P.VarId PascalValue
-type SymbolicTable = Map.Map P.VarId P.TypeSpec
+type Scope = Map.Map P.VarId (PascalValue, P.TypeSpec)
 
-data IS = IS {
-    memory :: Memory,
-    symbolicTable :: SymbolicTable
+type Memory = [Scope]
+
+newtype IS = IS {
+    memory :: Memory
 } deriving (Show)
 
 matchPascalValueToType :: PascalValue -> P.TypeSpec -> Bool
@@ -22,31 +22,58 @@ matchPascalValueToType (IntVal i) P.Integer = True
 matchPascalValueToType (FloatVal f) P.Real = True
 matchPascalValueToType _ _ = False
 
--- TODO: add type check
+addScope :: State IS ()
+addScope = modify (\s -> s { memory = Map.empty : memory s })
+
+removeScope :: State IS ()
+removeScope = modify (\s -> s { memory = tail (memory s) })
+
+addVarToScope :: P.VarId -> P.TypeSpec -> State IS ()
+addVarToScope varName varType = do
+    currentState <- get 
+    let currScope = head (memory currentState)
+    let updatedScope = Map.insertWith const varName (NoVal, varType) currScope
+    modify (\s -> s { memory = updatedScope : tail (memory currentState) })
+
+setVarInScope :: P.VarId -> PascalValue -> Memory -> Memory -> State IS ()
+setVarInScope varName _ _ [] = error ("Unknown Identifier " ++ show varName)
+setVarInScope varName varVal prev (scope:scopes) = do
+    case Map.lookup varName scope of
+        Nothing -> setVarInScope varName varVal (prev ++ [scope]) scopes
+        Just (_, varType) -> do
+            if matchPascalValueToType varVal varType then do
+                let updatedScope = Map.insertWith const varName (varVal, varType) scope
+                modify (\s -> s { memory = prev ++ [updatedScope] ++ scopes })
+            else
+                error ("You are trying to assign something that is NOT a(n) " ++ show varType ++ " value to " ++ show varName)
+
 setVar :: P.VarId -> PascalValue -> State IS ()
-setVar var val = do
-    varType <- getVarType var
-    if matchPascalValueToType val varType then do
-        modify (\s -> s { memory = Map.insertWith (\_ new -> new) var val (memory s)  })
-    else
-        error ("You are trying to assign something that is NOT a(n) " ++ show varType ++ " value to " ++ show var)
+setVar varName varVal = do
+    currentState <- get 
+    setVarInScope varName varVal [] (memory currentState)
 
-setVarType :: P.VarId -> P.TypeSpec -> State IS ()
-setVarType var varType = modify (\s -> s { symbolicTable = Map.insertWith (\_ new -> new) var varType (symbolicTable s)  })
+getVarInScope :: P.VarId -> Memory -> Memory -> State IS (PascalValue, P.TypeSpec)
+getVarInScope varName _ [] = error ("Unknown Identifier " ++ show varName)
+getVarInScope varName prev (scope:scopes) = do
+    case Map.lookup varName scope of
+        Nothing -> getVarInScope varName (prev ++ [scope]) scopes
+        Just (NoVal, _) -> error ("Identifier not initialized " ++ show varName)
+        Just val -> return val
 
-getVar :: P.VarId -> State IS PascalValue
+getVar :: P.VarId -> State IS (PascalValue, P.TypeSpec)
 getVar var = do
     currentState <- get
-    case Map.lookup var (memory currentState) of
-        Nothing -> error ("Unknown Identifier " ++ show var)
-        Just val -> return val
+    getVarInScope var [] (memory currentState)
+
+getVarValue :: P.VarId -> State IS PascalValue
+getVarValue var = do
+    varDef <- getVar var
+    return (fst varDef)
 
 getVarType :: P.VarId -> State IS P.TypeSpec
 getVarType var = do
-    currentState <- get
-    case Map.lookup var (symbolicTable currentState) of
-        Nothing -> error ("Unknown Identifier " ++ show var)
-        Just val -> return val
+    varDef <- getVar var
+    return (snd varDef)
 
 evalFactor :: P.Factor -> State IS PascalValue
 evalFactor (P.IntegerLiteral int) = return (IntVal int)
@@ -59,7 +86,7 @@ evalFactor (P.UnOperator op f) = case op of
             IntVal i -> IntVal (-i)
             FloatVal f -> FloatVal (-f)
 evalFactor (P.Parens expr) = evalExpr expr
-evalFactor (P.VarRef varName) = getVar varName
+evalFactor (P.VarRef varName) = getVarValue varName
 
 evalNumOperation :: (Int -> Int -> Int) -> (Float -> Float -> Float) ->  PascalValue -> PascalValue -> PascalValue
 evalNumOperation opInt opFloat p1 p2 =
@@ -115,15 +142,10 @@ evalStatements (x:xs) = do
     evalStatement x
     evalStatements xs
 
-evalBlock :: P.Block -> State IS ()
-evalBlock (P.Block decls statements) = do
-    evalVarDecls decls
-    evalStatements statements
-
 evalVarDec :: P.Declaration -> State IS ()
 evalVarDec (P.VarDec ([], varType)) = return ()
 evalVarDec (P.VarDec (id:varIds, varType)) = do
-    setVarType id varType
+    addVarToScope id varType
     evalVarDec (P.VarDec (varIds, varType))
 evalVarDec _ = return ()
 
@@ -133,13 +155,25 @@ evalVarDecls (d:decls) = do
     evalVarDec d
     evalVarDecls decls
 
+evalBlock :: P.Block -> State IS ()
+evalBlock block = do
+    evalTopLevelBlock block
+    removeScope
+
+-- this one doesn't pop the scope so we have something to look at
+evalTopLevelBlock :: P.Block -> State IS ()
+evalTopLevelBlock (P.Block decls statements) = do
+    addScope
+    evalVarDecls decls
+    evalStatements statements
+
 evalProgram :: P.Program -> State IS ()
 evalProgram (P.Program progName block) = do
-    evalBlock block
+    evalTopLevelBlock block
     return ()
 
 run :: P.Program -> Memory
 run program = do
-    let initialState = IS { symbolicTable = Map.empty, memory = Map.empty }
+    let initialState = IS { memory = [] }
     let res = execState (evalProgram program) initialState
-    trace (show (symbolicTable res)) $ memory res
+    memory res
